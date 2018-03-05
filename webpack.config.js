@@ -20,6 +20,7 @@ module.exports = (options = {}) => ({
         test: /\.vue$/,
         use: ['vue-loader']
       },
+      
       {
         test: /\.js$/,
         use: ['babel-loader'],
@@ -58,11 +59,8 @@ module.exports = (options = {}) => ({
     port: 8010,
     proxy: {
       '/api/': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true,
-        pathRewrite: {
-          '^/api': ''
-        }
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true
       }
     },
     historyApiFallback: {

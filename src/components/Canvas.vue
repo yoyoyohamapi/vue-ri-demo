@@ -1,19 +1,29 @@
 <template>
 <div>
-  <div class="block">
-    <span class="demonstration">颜色</span>
-    <el-color-picker v-model="color"></el-color-picker>
-  </div>
-  <canvas 
-    ref="icanvas" 
-    width="400" 
-    height="400" 
-    v-stream:mousedown="canvasMouseDown$"
-    v-stream:mouseup="canvasMouseUp$"
-    v-stream:mousemove="canvasMouseMove$" 
-  >
-  </canvas>
 
+<el-container>
+  <el-header>
+    <el-row>
+      <el-col :span="6" :offset="6">
+         <el-color-picker v-model="color" size="small"></el-color-picker>
+      </el-col>
+      <el-col :span="6">
+        <el-tag>平均数：{{average$}}</el-tag>
+      </el-col>
+    </el-row>
+  </el-header>
+  <el-main>
+    <canvas 
+      ref="icanvas" 
+      width="400" 
+      height="400" 
+      v-stream:mousedown="canvasMouseDown$"
+      v-stream:mouseup="canvasMouseUp$"
+      v-stream:mousemove="canvasMouseMove$" 
+    >
+    </canvas>
+  </el-main>
+</el-container>
   <script id="vertex-shader" type="notjs">
     attribute vec4 a_position;
     uniform mat4 u_matrix;
@@ -36,6 +46,10 @@ import * as webglUtils from '../libs/webgl-utils'
 import {Matrix4} from '../libs/cuon-matrix'
 import Rx from 'rxjs/Rx'
 import Color from 'color'
+import axios from 'axios'
+
+import Worker from 'worker-loader!../workers/average'
+const worker = new Worker
 
 export default {
   data() {
@@ -49,25 +63,50 @@ export default {
   },
   domStreams: ['canvasMouseDown$', 'canvasMouseMove$', 'canvasMouseUp$'],
   subscriptions() {
-    const documentMouseUp$ = this.$fromDOMEvent(null, 'mouseup')
+    const documentMouseUp$ = Rx.Observable.fromEvent(document, 'mouseup')
+    const documentKeyDown$ = Rx.Observable.fromEvent(document, 'keydown')
     const mouseUp$ = Rx.Observable.merge(documentMouseUp$, this.canvasMouseUp$)
-    // 鼠标按下开始旋转
+    
+    // 鼠标按下,或者按住 r 开始旋转
     // 鼠标移动时进行旋转，每次移动旋转 1°
-    // 鼠标抬起是结束旋转
-    const rotate$ = this.canvasMouseDown$.flatMapTo(
-        this.canvasMouseMove$.mapTo(1).takeUntil(mouseUp$)
+    // 鼠标抬起时候结束旋转
+    const mouseRotate$ = this.canvasMouseDown$.flatMapTo(
+      this.canvasMouseMove$.takeUntil(mouseUp$)
     )
+    const keyboardRotate$ = documentKeyDown$.filter(event => event.key === 'r')
+    const rotate$ = Rx.Observable
+      .merge(
+        mouseRotate$,
+        keyboardRotate$
+      )
+      .mapTo(1)
+      
     const rgba$ = this.$watchAsObservable('color')
         .pluck('newValue')
         .map(color => Color(color).rgb().array()) // 十六进制转换为 rgb
         .map(rgb => rgb.map(color => color/255).concat([1.0]))
         .startWith([1, 1, 1, 1])
     const angle$ = rotate$.startWith(0)
+
+    // 角度变幻时请求数据
+    const data$ = angle$
+      .debounceTime(500)
+      .switchMap(() => Rx.Observable.fromPromise(axios.get('/api/')))
+      .pluck('data')
+
+    // 绘制选项流
     const drawOptions$ = Rx.Observable
       .combineLatest(rgba$, angle$)
       .map(([rgba, angle]) => ({rgba, angle}))
+    
+    // 计算流
+    const average$ = Rx.Observable.fromEvent(worker, 'message')
+      .pluck('data')
+
     return {
-      drawOptions$
+      drawOptions$,
+      data$,
+      average$
     } 
   },
   methods: {
@@ -112,6 +151,7 @@ export default {
     gl.enableVertexAttribArray(positionLocation)
  
     this.$observables.drawOptions$.subscribe(this.draw)
+    this.$observables.data$.subscribe(data => worker.postMessage(data))
   }
 }
 </script>
