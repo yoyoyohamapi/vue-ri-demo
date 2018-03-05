@@ -52,23 +52,20 @@ export default {
     const documentMouseUp$ = this.$fromDOMEvent(null, 'mouseup')
     const mouseUp$ = Rx.Observable.merge(documentMouseUp$, this.canvasMouseUp$)
     // 鼠标按下开始旋转
-    // 鼠标移动时进行旋转，旋转角度又水平位移方向和长度决定
+    // 鼠标移动时进行旋转，每次移动旋转 1°
     // 鼠标抬起是结束旋转
-    const rotate$ = this.canvasMouseDown$.flatMap(
-        ({event}) => {
-          const startX = event.clientX
-          return this.canvasMouseMove$.pluck('event').map(event => {
-            return (event.clientX - startX) % 360
-          }).takeUntil(mouseUp$)
-        }
-      )
+    const rotate$ = this.canvasMouseDown$.flatMapTo(
+        this.canvasMouseMove$.mapTo(1).takeUntil(mouseUp$)
+    )
     const rgba$ = this.$watchAsObservable('color')
         .pluck('newValue')
         .map(color => Color(color).rgb().array()) // 十六进制转换为 rgb
         .map(rgb => rgb.map(color => color/255).concat([1.0]))
         .startWith([1, 1, 1, 1])
     const angle$ = rotate$.startWith(0)
-    const drawOptions$ = Rx.Observable.combineLatest(rgba$, angle$).map(([rgba, angle]) => ({rgba, angle}))
+    const drawOptions$ = Rx.Observable
+      .combineLatest(rgba$, angle$)
+      .map(([rgba, angle]) => ({rgba, angle}))
     return {
       drawOptions$
     } 
